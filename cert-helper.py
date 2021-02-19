@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 Helper script for creating Certificate Signing Requests (CSR)
+
+TODO: do not overwrite existing CSR
 """
 
 import click
@@ -70,7 +72,7 @@ def get_key(name, key_type='ec'):
 
     try:
         with key_file.open(mode='xb') as f:
-            print(f"Generating private key '{key_file.name}")
+            print(f"Generating private key '{key_file.name}'")
             create_func = get_mapping(key_type)
             key = create_func()
 
@@ -81,7 +83,7 @@ def get_key(name, key_type='ec'):
             ))
     except FileExistsError as fee:
         print(fee.strerror)
-        print("Private key file already exists, trying to load contents...")
+        print(f"Private key file '{key_file.name}' already exists, loading contents")
         key = private_key_load(key_file)
 
     return key
@@ -99,7 +101,7 @@ def create_csr(name, settings, san, key_type):
     print("Creating certificate signing request")
     nameoid = settings['nameoid']
 
-    # Create or load existing key.
+    # Create new, or load existing key.
     key = get_key(name, key_type)
 
     builder = x509.CertificateSigningRequestBuilder()
@@ -112,20 +114,31 @@ def create_csr(name, settings, san, key_type):
     ]))
 
     builder = builder.add_extension(x509.SubjectAlternativeName(san), critical=False)
+    print('Signing CSR with key')
     csr = builder.sign(key, hashes.SHA256())
     csr_pem = csr.public_bytes(serialization.Encoding.PEM)
 
     with open(f'out/{name}.csr.pem', 'wb') as f:
         f.write(csr_pem)
+        print(f"Saved CSR '{name}.csr.pem'")
 
-    print(f"Saved CSR {name}.csr.pem")
+    print("Your CSR:\n")
     print(csr_pem.decode('utf-8'))
     return csr_pem
 
 
-@click.group()
-def cli():
-    pass
+CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
+
+
+@click.group(
+    invoke_without_command=True,
+    context_settings=CONTEXT_SETTINGS,
+    help="Helper script for creating Certificate Signing Requests (CSR)"
+)
+@click.pass_context
+def cli(ctx: click.Context):
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(interactive)
 
 
 @cli.command()
@@ -145,10 +158,10 @@ def debug():
 @cli.command()
 def interactive():
     """
-    Create CSR interactively
+    Create CSR interactively (default)
     """
     settings = load_settings()
-    key_type = click.prompt("What type of key to use? ('ec' or 'rsa', defaulting to 'ec')", default='ec')
+    key_type = click.prompt("What type of key to use? ('ec' or 'rsa')", default='ec')
     common_name = click.prompt('What is the primary domain?', type=str)
 
     more_altnames = True
@@ -163,12 +176,16 @@ def interactive():
     create_csr(common_name, settings, altnames, key_type)
 
 
+create_help_text = "Domain to create a CSR for. Should be passed multiple times, " \
+                   "the first entry will be the primary domain."
+
+
 @cli.command()
-@click.option('--domain', '-d', multiple=True, help="Domain to create a CSR for. Can be passed multiple times, the first entry will be the primary domain.")
+@click.option('--domain', '-d', multiple=True, required=True, help=create_help_text)
 @click.option('--type', '-t', 'key_type', default='ec', help="Type of key to generate. 'rsa' or 'ec', defaults to 'ec'")
 def create(domain, key_type):
     """
-    Potato Tomato
+    Pass domains to create without going interactive
     """
     common_name = domain[0]
     altnames = []

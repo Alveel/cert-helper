@@ -1,4 +1,4 @@
 .idea
-out/
+out/*.pem
 venv/
 settings.yaml
