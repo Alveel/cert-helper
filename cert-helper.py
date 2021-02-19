@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 Helper script for creating Certificate Signing Requests (CSR)
+
+TODO: save each key/csr to their own primary domain's folder
 """
 
 import click
@@ -163,7 +165,7 @@ def debug():
 @click.option('--force', '-f', is_flag=True, help="Overwrite existing CSR, if present")
 def interactive(force):
     """
-    Create CSR interactively (default)
+    Create CSR interactively
     """
     settings = load_settings()
     key_type = click.prompt("What type of key to use? ('ec' or 'rsa')", default='ec')
