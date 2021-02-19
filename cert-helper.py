@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
+"""
+Helper script for creating Certificate Signing Requests (CSR)
+"""
 
 import click
 from yaml import safe_load, YAMLError
+from pathlib import Path
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import serialization, hashes
@@ -9,7 +13,8 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 
 def load_settings():
-    with open('settings.yaml', 'r') as stream:
+    settings_file = Path('settings.yaml')
+    with settings_file.open() as stream:
         try:
             data = safe_load(stream)
             return data
@@ -17,40 +22,85 @@ def load_settings():
             print(ye)
 
 
-def generate_key(name, key_type='ec'):
+def private_key_load(key_file_path: Path):
     """
-    TODO: work with RSA as well
+    Load private key, independent of type.
+    :param key_file_path: Path to key file
+    :return: RSAPrivateKey or EllipticCurvePrivateKey
     """
-    print(f"Generating private key '{name}.ecc.pem'")
-    key = ec.generate_private_key(
-        ec.SECP256R1()
-    )
-
-    with open(f'out/{name}.ecc.pem', 'wb') as f:
-        f.write(key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption()
-        ))
+    with key_file_path.open(mode='rb') as f:
+        key = serialization.load_pem_private_key(
+            f.read(),
+            password=None
+        )
 
     return key
 
 
-def create_csr(name, settings, san, key=False):
+def create_ec_key():
+    return ec.generate_private_key(
+        ec.SECP256R1()
+    )
+
+
+def create_rsa_key(length=4096):
+    return rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=length,
+    )
+
+
+def get_mapping(key_type):
+    mapping = {
+        'ec': create_ec_key,
+        'rsa': create_rsa_key,
+    }
+
+    return mapping[key_type]
+
+
+def get_key(name, key_type='ec'):
+    """
+    Generate private key.
+
+    Because we do not want to overwrite any existing private keys, try to open the file first in exclusive write mode.
+    If the key file already exists, FileExistsError is thrown, and we try to load the existing file instead.
+    """
+    key_file = Path(f'out/{name}.{key_type}.pem')
+
+    try:
+        with key_file.open(mode='xb') as f:
+            print(f"Generating private key '{key_file.name}")
+            create_func = get_mapping(key_type)
+            key = create_func()
+
+            f.write(key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
+    except FileExistsError as fee:
+        print(fee.strerror)
+        print("Private key file already exists, trying to load contents...")
+        key = private_key_load(key_file)
+
+    return key
+
+
+def create_csr(name, settings, san, key_type):
     """
     Create certificate signing request (CSR)
     :param name: the common name, also name of the certificate
     :param settings: NameOID settings
     :param san: List[subjectAltNames]
-    :param key: private key
-    :return:
+    :param key_type: ec or rsa
+    :return: PEM encoded CSR
     """
     print("Creating certificate signing request")
     nameoid = settings['nameoid']
 
-    if not key:
-        # Generate key if not already specified
-        key = generate_key(name)
+    # Create or load existing key.
+    key = get_key(name, key_type)
 
     builder = x509.CertificateSigningRequestBuilder()
     builder = builder.subject_name(x509.Name([
@@ -73,9 +123,15 @@ def create_csr(name, settings, san, key=False):
     return csr_pem
 
 
-def run():
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+def debug():
     """
-    Test run function with static names.
+    Debug function with static domains
     """
     settings = load_settings()
     san = [
@@ -83,15 +139,16 @@ def run():
         x509.DNSName('*.example.org'),
         x509.DNSName('example.net')
     ]
-    create_csr('test', settings, san)
+    create_csr('test', settings, san, 'ec')
 
 
-@click.command()
+@cli.command()
 def interactive():
     """
-    Interactive function that asks for alt names.
+    Create CSR interactively
     """
     settings = load_settings()
+    key_type = click.prompt("What type of key to use? ('ec' or 'rsa', defaulting to 'ec')", default='ec')
     common_name = click.prompt('What is the primary domain?', type=str)
 
     more_altnames = True
@@ -103,24 +160,23 @@ def interactive():
         else:
             altnames.append(x509.DNSName(this_name))
 
-    create_csr(common_name, settings, altnames)
+    create_csr(common_name, settings, altnames, key_type)
 
 
-@click.command()
-@click.option('--domain', '-d', multiple=True)
-def names(domain):
+@cli.command()
+@click.option('--domain', '-d', multiple=True, help="Domain to create a CSR for. Can be passed multiple times, the first entry will be the primary domain.")
+@click.option('--type', '-t', 'key_type', default='ec', help="Type of key to generate. 'rsa' or 'ec', defaults to 'ec'")
+def create(domain, key_type):
     """
-    Pass every domain you want to add
-    :param domain: name
+    Potato Tomato
     """
     common_name = domain[0]
     altnames = []
     for d in domain:
         altnames.append(x509.DNSName(d))
 
-    create_csr(common_name, load_settings(), altnames)
+    create_csr(common_name, load_settings(), altnames, key_type)
 
 
 if __name__ == '__main__':
-    # interactive()
-    names()
+    cli()
