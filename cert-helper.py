@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
 Helper script for creating Certificate Signing Requests (CSR)
-
-TODO: do not overwrite existing CSR
 """
 
 import click
@@ -31,12 +29,10 @@ def private_key_load(key_file_path: Path):
     :return: RSAPrivateKey or EllipticCurvePrivateKey
     """
     with key_file_path.open(mode='rb') as f:
-        key = serialization.load_pem_private_key(
+        return serialization.load_pem_private_key(
             f.read(),
             password=None
         )
-
-    return key
 
 
 def create_ec_key():
@@ -53,6 +49,11 @@ def create_rsa_key(length=4096):
 
 
 def get_mapping(key_type):
+    """
+    Translate key_type to the appropriate create_key function
+    :param key_type: the type of key
+    :return: the create_key function
+    """
     mapping = {
         'ec': create_ec_key,
         'rsa': create_rsa_key,
@@ -81,21 +82,21 @@ def get_key(name, key_type='ec'):
                 format=serialization.PrivateFormat.TraditionalOpenSSL,
                 encryption_algorithm=serialization.NoEncryption()
             ))
-    except FileExistsError as fee:
-        print(fee.strerror)
+    except FileExistsError:
         print(f"Private key file '{key_file.name}' already exists, loading contents")
         key = private_key_load(key_file)
 
     return key
 
 
-def create_csr(name, settings, san, key_type):
+def create_csr(name, settings, san, key_type, force=False):
     """
     Create certificate signing request (CSR)
     :param name: the common name, also name of the certificate
     :param settings: NameOID settings
     :param san: List[subjectAltNames]
     :param key_type: ec or rsa
+    :param force: overwrite existing CSR
     :return: PEM encoded CSR
     """
     print("Creating certificate signing request")
@@ -118,9 +119,15 @@ def create_csr(name, settings, san, key_type):
     csr = builder.sign(key, hashes.SHA256())
     csr_pem = csr.public_bytes(serialization.Encoding.PEM)
 
-    with open(f'out/{name}.csr.pem', 'wb') as f:
-        f.write(csr_pem)
-        print(f"Saved CSR '{name}.csr.pem'")
+    write_mode = 'wb' if force else 'xb'
+
+    try:
+        with open(f'out/{name}.csr.pem', write_mode) as f:
+            f.write(csr_pem)
+            print(f"Saved CSR '{name}.csr.pem'")
+    except FileExistsError:
+        print(f"CSR '{name}.csr.pem' exists, not overwriting (use '-f' or '--force' to overwrite)")
+        return
 
     print("Your CSR:\n")
     print(csr_pem.decode('utf-8'))
@@ -131,14 +138,11 @@ CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 
 @click.group(
-    invoke_without_command=True,
     context_settings=CONTEXT_SETTINGS,
     help="Helper script for creating Certificate Signing Requests (CSR)"
 )
-@click.pass_context
-def cli(ctx: click.Context):
-    if ctx.invoked_subcommand is None:
-        ctx.invoke(interactive)
+def cli():
+    pass
 
 
 @cli.command()
@@ -156,7 +160,8 @@ def debug():
 
 
 @cli.command()
-def interactive():
+@click.option('--force', '-f', is_flag=True, help="Overwrite existing CSR, if present")
+def interactive(force):
     """
     Create CSR interactively (default)
     """
@@ -173,7 +178,7 @@ def interactive():
         else:
             altnames.append(x509.DNSName(this_name))
 
-    create_csr(common_name, settings, altnames, key_type)
+    create_csr(common_name, settings, altnames, key_type, force)
 
 
 create_help_text = "Domain to create a CSR for. Should be passed multiple times, " \
@@ -183,16 +188,18 @@ create_help_text = "Domain to create a CSR for. Should be passed multiple times,
 @cli.command()
 @click.option('--domain', '-d', multiple=True, required=True, help=create_help_text)
 @click.option('--type', '-t', 'key_type', default='ec', help="Type of key to generate. 'rsa' or 'ec', defaults to 'ec'")
-def create(domain, key_type):
+@click.option('--force', '-f', is_flag=True, help="Overwrite existing CSR, if present")
+def create(domain, key_type, force):
     """
     Pass domains to create without going interactive
     """
+    settings = load_settings()
     common_name = domain[0]
     altnames = []
     for d in domain:
         altnames.append(x509.DNSName(d))
 
-    create_csr(common_name, load_settings(), altnames, key_type)
+    create_csr(common_name, settings, altnames, key_type, force)
 
 
 if __name__ == '__main__':
