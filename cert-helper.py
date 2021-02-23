@@ -2,9 +2,10 @@
 """
 Helper script for creating Certificate Signing Requests (CSR)
 
-TODO: save each key/csr to their own primary domain's folder
+TODO: objectify!
 """
 
+import logging
 import click
 from yaml import safe_load, YAMLError
 from pathlib import Path
@@ -14,14 +15,22 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 
+logger = logging.getLogger('root')
+log_format = f"[%(filename)s:%(lineno)d	- %(funcName)20s() ] %(message)s"
+logging.basicConfig(format=log_format)
+logger.setLevel(logging.DEBUG)
+logger.debug('Initialising')
+
+
 def load_settings():
+    logger.debug('Loading settings')
     settings_file = Path('settings.yaml')
     with settings_file.open() as stream:
         try:
             data = safe_load(stream)
             return data
         except YAMLError as ye:
-            print(ye)
+            logger.error(ye)
 
 
 def private_key_load(key_file_path: Path):
@@ -30,6 +39,7 @@ def private_key_load(key_file_path: Path):
     :param key_file_path: Path to key file
     :return: RSAPrivateKey or EllipticCurvePrivateKey
     """
+    logger.debug('Loading private key file')
     with key_file_path.open(mode='rb') as f:
         return serialization.load_pem_private_key(
             f.read(),
@@ -38,12 +48,14 @@ def private_key_load(key_file_path: Path):
 
 
 def create_ec_key():
+    logger.debug('Generating EC')
     return ec.generate_private_key(
         ec.SECP256R1()
     )
 
 
 def create_rsa_key(length=4096):
+    logger.debug('Generating RSA')
     return rsa.generate_private_key(
         public_exponent=65537,
         key_size=length,
@@ -64,6 +76,28 @@ def get_mapping(key_type):
     return mapping[key_type]
 
 
+def get_out_dir(name: str):
+    logger.debug('Get out dir (str)')
+    suffixes = [".csr.pem", ".ec.pem"]
+    out_dir = "out/" + name
+    for suf in suffixes:
+        out_dir = out_dir.removesuffix(suf)
+
+    return out_dir
+
+
+def sanitise_path(name):
+    logger.debug('Sanitise path (Path)')
+    # First sanitise
+    replace_wildcard = name.replace("*", "wildcard")
+
+    # Then build path
+    outpath = get_out_dir(replace_wildcard)
+    path = Path(f'{outpath}/{replace_wildcard}')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def get_key(name, key_type='ec'):
     """
     Generate private key.
@@ -71,11 +105,11 @@ def get_key(name, key_type='ec'):
     Because we do not want to overwrite any existing private keys, try to open the file first in exclusive write mode.
     If the key file already exists, FileExistsError is thrown, and we try to load the existing file instead.
     """
-    key_file = Path(f'out/{name}.{key_type}.pem')
+    logger.debug('Get key file or generate a new key')
+    key_file = sanitise_path(f'{name}.{key_type}.pem')
 
     try:
         with key_file.open(mode='xb') as f:
-            print(f"Generating private key '{key_file.name}'")
             create_func = get_mapping(key_type)
             key = create_func()
 
@@ -85,7 +119,7 @@ def get_key(name, key_type='ec'):
                 encryption_algorithm=serialization.NoEncryption()
             ))
     except FileExistsError:
-        print(f"Private key file '{key_file.name}' already exists, loading contents")
+        logger.error(f"Private key file '{key_file.name}' already exists, loading contents")
         key = private_key_load(key_file)
 
     return key
@@ -101,7 +135,10 @@ def create_csr(name, settings, san, key_type, force=False):
     :param force: overwrite existing CSR
     :return: PEM encoded CSR
     """
-    print("Creating certificate signing request")
+    logger.debug('Build and sign the CSR')
+    csr_file = sanitise_path(f'/{name}.csr.pem')
+
+    logger.info("Creating certificate signing request")
     nameoid = settings['nameoid']
 
     # Create new, or load existing key.
@@ -117,21 +154,21 @@ def create_csr(name, settings, san, key_type, force=False):
     ]))
 
     builder = builder.add_extension(x509.SubjectAlternativeName(san), critical=False)
-    print('Signing CSR with key')
+    logger.info('Signing CSR with key')
     csr = builder.sign(key, hashes.SHA256())
     csr_pem = csr.public_bytes(serialization.Encoding.PEM)
 
     write_mode = 'wb' if force else 'xb'
 
     try:
-        with open(f'out/{name}.csr.pem', write_mode) as f:
+        with csr_file.open(write_mode) as f:
             f.write(csr_pem)
-            print(f"Saved CSR '{name}.csr.pem'")
+            logger.info(f"Saved CSR '{csr_file.name}'")
     except FileExistsError:
-        print(f"CSR '{name}.csr.pem' exists, not overwriting (use '-f' or '--force' to overwrite)")
+        logger.error(f"CSR '{csr_file.name}' exists, not overwriting (use '-f' or '--force' to overwrite)")
         return
 
-    print("Your CSR:\n")
+    logger.info("Your CSR:\n")
     print(csr_pem.decode('utf-8'))
     return csr_pem
 
@@ -152,6 +189,7 @@ def debug():
     """
     Debug function with static domains
     """
+    logger.debug('Run CLI debug')
     settings = load_settings()
     san = [
         x509.DNSName('example.org'),
@@ -167,6 +205,7 @@ def interactive(force):
     """
     Create CSR interactively
     """
+    logger.debug('Run CLI interactive')
     settings = load_settings()
     key_type = click.prompt("What type of key to use? ('ec' or 'rsa')", default='ec')
     common_name = click.prompt('What is the primary domain?', type=str)
@@ -195,8 +234,9 @@ def create(domain, key_type, force):
     """
     Pass domains to create without going interactive
     """
+    logger.debug('Run CLI create')
     settings = load_settings()
-    common_name = domain[0]
+    common_name = domain[0].strip("'")
     altnames = []
     for d in domain:
         altnames.append(x509.DNSName(d))
