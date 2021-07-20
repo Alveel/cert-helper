@@ -180,8 +180,9 @@ def create_csr(name, san, key_type, force):
     return csr_pem
 
 
-def create_self_signed_certificate(name, san, key_type, validity, force):
+def create_certificate(name, san, key_type, validity, force):
     """
+    Create a *self signed* certificate
     @param name: common name
     @param key_type: key type of certificate
     @param san: subjectAltNames
@@ -243,7 +244,7 @@ def debug():
         x509.DNSName('example.net')
     ]
     create_csr('test', san, 'ec', True)
-    create_self_signed_certificate('test', san, 'ec', 10, True)
+    create_certificate('test', san, 'ec', 10, True)
 
 
 @cli.command()
@@ -270,7 +271,7 @@ def interactive(force):
 
     if self_signed:
         validity = click.prompt('How long do you want the certificate to be valid for?', type=int, default=365)
-        create_self_signed_certificate(common_name, altnames, key_type, validity, force)
+        create_certificate(common_name, altnames, key_type, validity, force)
 
 
 create_help_text = "Domain to create a CSR for. Should be passed multiple times, " \
@@ -296,7 +297,7 @@ def create(domain, key_type, sign, validity, force):
     create_csr(common_name, altnames, key_type, force)
 
     if sign:
-        create_self_signed_certificate(common_name, altnames, key_type, validity, force)
+        create_certificate(common_name, altnames, key_type, validity, force)
 
 
 if __name__ == '__main__':
