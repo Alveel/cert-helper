@@ -1,4 +1,6 @@
 .idea
+.python-version
 out/
 venv/
 settings.yaml
+
