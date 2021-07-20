@@ -106,12 +106,11 @@ def get_key(name, key_type='ec'):
     try:
         key = private_key_load(key_file)
     except ValueError:
-        print(f"Private key file '{key_file.name}' does not contain correct private key, overwriting")
+        logger.error(f"Private key file '{key_file.name}' does not contain correct private key, overwriting")
 
     try:
         with key_file.open(mode='wb') as f:
-            create_func = get_mapping(key_type)
-            key = create_func()
+            key = get_mapping(key_type)()
 
             f.write(key.private_bytes(
                 encoding=serialization.Encoding.PEM,
