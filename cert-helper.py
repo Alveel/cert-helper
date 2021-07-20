@@ -86,14 +86,14 @@ def get_out_dir(name: str):
     return out_dir
 
 
-def sanitise_path(name):
+def sanitise_path(name, suffix):
     logger.debug('Sanitise path (Path)')
     # First sanitise
     replace_wildcard = name.replace("*", "wildcard")
 
     # Then build path
     outpath = get_out_dir(replace_wildcard)
-    path = Path(f'{outpath}/{replace_wildcard}')
+    path = Path(f'{outpath}/{replace_wildcard}.{suffix}')
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -104,12 +104,20 @@ def get_key(name, key_type='ec'):
 
     Because we do not want to overwrite any existing private keys, try to open the file first in exclusive write mode.
     If the key file already exists, FileExistsError is thrown, and we try to load the existing file instead.
+
+    TODO: this is no longer the case... We first create an empty key file with 0600 permissions.
     """
     logger.debug('Get key file or generate a new key')
-    key_file = sanitise_path(f'{name}.{key_type}.pem')
+    key_file = sanitise_path(name, f'{key_type}.pem')
+    key_file.touch(0o600)
 
     try:
-        with key_file.open(mode='xb') as f:
+        key = private_key_load(key_file)
+    except ValueError:
+        print(f"Private key file '{key_file.name}' does not contain correct private key, overwriting")
+
+    try:
+        with key_file.open(mode='wb') as f:
             create_func = get_mapping(key_type)
             key = create_func()
 
@@ -121,6 +129,8 @@ def get_key(name, key_type='ec'):
     except FileExistsError:
         logger.error(f"Private key file '{key_file.name}' already exists, loading contents")
         key = private_key_load(key_file)
+
+    key_file.chmod(0o600)
 
     return key
 
@@ -136,7 +146,7 @@ def create_csr(name, settings, san, key_type, force=False):
     :return: PEM encoded CSR
     """
     logger.debug('Build and sign the CSR')
-    csr_file = sanitise_path(f'/{name}.csr.pem')
+    csr_file = sanitise_path(name, f'csr.pem')
 
     logger.info("Creating certificate signing request")
     nameoid = settings['nameoid']
@@ -150,6 +160,7 @@ def create_csr(name, settings, san, key_type, force=False):
         x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, nameoid['STATE_OR_PROVINCE_NAME']),
         x509.NameAttribute(NameOID.LOCALITY_NAME, nameoid['LOCALITY_NAME']),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, nameoid['ORGANIZATION_NAME']),
+        x509.NameAttribute(NameOID.EMAIL_ADDRESS, nameoid['EMAIL_ADDRESS']),
         x509.NameAttribute(NameOID.COMMON_NAME, name),
     ]))
 

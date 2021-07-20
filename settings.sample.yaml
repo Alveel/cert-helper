@@ -3,3 +3,5 @@ nameoid:
   STATE_OR_PROVINCE_NAME: Noord-Holland
   LOCALITY_NAME: Amsterdam
   ORGANIZATION_NAME: Foo Bar Ltd.
+  EMAIL_ADDRESS: webhosting@example.org
+
