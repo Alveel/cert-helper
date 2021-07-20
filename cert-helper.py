@@ -4,7 +4,7 @@ Helper script for creating Certificate Signing Requests (CSR)
 
 TODO: objectify!
 """
-
+import datetime
 import logging
 import click
 from yaml import safe_load, YAMLError
@@ -31,6 +31,9 @@ def load_settings():
             return data
         except YAMLError as ye:
             logger.error(ye)
+
+
+settings = load_settings()
 
 
 def private_key_load(key_file_path: Path):
@@ -76,24 +79,13 @@ def get_mapping(key_type):
     return mapping[key_type]
 
 
-def get_out_dir(name: str):
-    logger.debug('Get out dir (str)')
-    suffixes = [".csr.pem", ".ec.pem"]
-    out_dir = "out/" + name
-    for suf in suffixes:
-        out_dir = out_dir.removesuffix(suf)
-
-    return out_dir
-
-
 def sanitise_path(name, suffix):
     logger.debug('Sanitise path (Path)')
     # First sanitise
     replace_wildcard = name.replace("*", "wildcard")
 
     # Then build path
-    outpath = get_out_dir(replace_wildcard)
-    path = Path(f'{outpath}/{replace_wildcard}.{suffix}')
+    path = Path(f'out/{name}/{replace_wildcard}{suffix}')
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -108,7 +100,7 @@ def get_key(name, key_type='ec'):
     TODO: this is no longer the case... We first create an empty key file with 0600 permissions.
     """
     logger.debug('Get key file or generate a new key')
-    key_file = sanitise_path(name, f'{key_type}.pem')
+    key_file = sanitise_path(name, f'.{key_type}.pem')
     key_file.touch(0o600)
 
     try:
@@ -135,36 +127,40 @@ def get_key(name, key_type='ec'):
     return key
 
 
-def create_csr(name, settings, san, key_type, force=False):
-    """
-    Create certificate signing request (CSR)
-    :param name: the common name, also name of the certificate
-    :param settings: NameOID settings
-    :param san: List[subjectAltNames]
-    :param key_type: ec or rsa
-    :param force: overwrite existing CSR
-    :return: PEM encoded CSR
-    """
-    logger.debug('Build and sign the CSR')
-    csr_file = sanitise_path(name, f'csr.pem')
-
-    logger.info("Creating certificate signing request")
+def get_x509_name(name):
     nameoid = settings['nameoid']
 
-    # Create new, or load existing key.
-    key = get_key(name, key_type)
-
-    builder = x509.CertificateSigningRequestBuilder()
-    builder = builder.subject_name(x509.Name([
+    return x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, nameoid['COUNTRY_NAME']),
         x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, nameoid['STATE_OR_PROVINCE_NAME']),
         x509.NameAttribute(NameOID.LOCALITY_NAME, nameoid['LOCALITY_NAME']),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, nameoid['ORGANIZATION_NAME']),
         x509.NameAttribute(NameOID.EMAIL_ADDRESS, nameoid['EMAIL_ADDRESS']),
         x509.NameAttribute(NameOID.COMMON_NAME, name),
-    ]))
+    ])
 
+
+def create_csr(name, san, key_type, force):
+    """
+    Create certificate signing request (CSR)
+    :param name: the common name, also name of the certificate
+    :param san: List[subjectAltNames]
+    :param key_type: ec or rsa
+    :param force: overwrite existing CSR
+    :return: PEM encoded CSR
+    """
+    logger.debug('Build and sign the CSR')
+    csr_file = sanitise_path(name, f'.csr.pem')
+
+    logger.info("Creating certificate signing request")
+
+    # Create new, or load existing key.
+    key = get_key(name, key_type)
+
+    builder = x509.CertificateSigningRequestBuilder()
+    builder = builder.subject_name(get_x509_name(name))
     builder = builder.add_extension(x509.SubjectAlternativeName(san), critical=False)
+
     logger.info('Signing CSR with key')
     csr = builder.sign(key, hashes.SHA256())
     csr_pem = csr.public_bytes(serialization.Encoding.PEM)
@@ -184,6 +180,46 @@ def create_csr(name, settings, san, key_type, force=False):
     return csr_pem
 
 
+def create_self_signed_certificate(name, san, key_type, validity, force):
+    """
+    @param name: common name
+    @param key_type: key type of certificate
+    @param san: subjectAltNames
+    @param validity: certificate validity in days
+    @param force: overwrite existing certificate
+    """
+    cert_file = sanitise_path(name, '.crt.pem')
+    x509_name = get_x509_name(name)
+    key = get_key(name, key_type=key_type)
+    now = datetime.datetime.now()
+    end_date = now + datetime.timedelta(days=validity)
+
+    cert = x509.CertificateBuilder()
+    cert = cert.subject_name(x509_name)
+    cert = cert.issuer_name(x509_name)
+    cert = cert.public_key(key.public_key())
+    cert = cert.serial_number(x509.random_serial_number())
+    cert = cert.not_valid_before(now)
+    cert = cert.not_valid_after(end_date)
+    cert = cert.add_extension(x509.SubjectAlternativeName(san), critical=False)
+
+    cert = cert.sign(key, hashes.SHA256())
+    cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+
+    write_mode = 'wb' if force else 'xb'
+
+    try:
+        with cert_file.open(write_mode) as f:
+            f.write(cert_pem)
+            logger.info(f"Saved certificate '{cert_file.name}'")
+    except FileExistsError:
+        logger.error("ERREUR!")
+
+    logger.info("Your certificate:\n")
+    print(cert_pem.decode('utf-8'))
+    return cert_pem
+
+
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 
@@ -201,13 +237,13 @@ def debug():
     Debug function with static domains
     """
     logger.debug('Run CLI debug')
-    settings = load_settings()
     san = [
         x509.DNSName('example.org'),
         x509.DNSName('*.example.org'),
         x509.DNSName('example.net')
     ]
-    create_csr('test', settings, san, 'ec')
+    create_csr('test', san, 'ec', True)
+    create_self_signed_certificate('test', san, 'ec', 10, True)
 
 
 @cli.command()
@@ -217,9 +253,9 @@ def interactive(force):
     Create CSR interactively
     """
     logger.debug('Run CLI interactive')
-    settings = load_settings()
     key_type = click.prompt("What type of key to use? ('ec' or 'rsa')", default='ec')
     common_name = click.prompt('What is the primary domain?', type=str)
+    self_signed = click.prompt('Do you want to create self-signed certificate?', type=bool, default=False)
 
     more_altnames = True
     altnames = [x509.DNSName(common_name)]
@@ -230,7 +266,11 @@ def interactive(force):
         else:
             altnames.append(x509.DNSName(this_name))
 
-    create_csr(common_name, settings, altnames, key_type, force)
+    create_csr(common_name, altnames, key_type, force)
+
+    if self_signed:
+        validity = click.prompt('How long do you want the certificate to be valid for?', type=int, default=365)
+        create_self_signed_certificate(common_name, altnames, key_type, validity, force)
 
 
 create_help_text = "Domain to create a CSR for. Should be passed multiple times, " \
@@ -240,19 +280,23 @@ create_help_text = "Domain to create a CSR for. Should be passed multiple times,
 @cli.command()
 @click.option('--domain', '-d', multiple=True, required=True, help=create_help_text)
 @click.option('--type', '-t', 'key_type', default='ec', help="Type of key to generate. 'rsa' or 'ec', defaults to 'ec'")
+@click.option('--sign', '-s', is_flag=True, help="Create self-signed certificate")
+@click.option('--validity', '-v', is_flag=True, default=365, type=int)
 @click.option('--force', '-f', is_flag=True, help="Overwrite existing CSR, if present")
-def create(domain, key_type, force):
+def create(domain, key_type, sign, validity, force):
     """
     Pass domains to create without going interactive
     """
     logger.debug('Run CLI create')
-    settings = load_settings()
     common_name = domain[0].strip("'")
     altnames = []
     for d in domain:
         altnames.append(x509.DNSName(d))
 
-    create_csr(common_name, settings, altnames, key_type, force)
+    create_csr(common_name, altnames, key_type, force)
+
+    if sign:
+        create_self_signed_certificate(common_name, altnames, key_type, validity, force)
 
 
 if __name__ == '__main__':
