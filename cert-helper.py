@@ -154,21 +154,21 @@ def create_csr(name, san, key_type, force):
 
     logger.info("Creating certificate signing request")
 
-    # Create new, or load existing key.
-    key = get_key(name, key_type)
-
-    builder = x509.CertificateSigningRequestBuilder()
-    builder = builder.subject_name(get_x509_name(name))
-    builder = builder.add_extension(x509.SubjectAlternativeName(san), critical=False)
-
-    logger.info('Signing CSR with key')
-    csr = builder.sign(key, hashes.SHA256())
-    csr_pem = csr.public_bytes(serialization.Encoding.PEM)
-
     write_mode = 'wb' if force else 'xb'
 
     try:
         with csr_file.open(write_mode) as f:
+            # Create new, or load existing key.
+            key = get_key(name, key_type)
+
+            builder = x509.CertificateSigningRequestBuilder()
+            builder = builder.subject_name(get_x509_name(name))
+            builder = builder.add_extension(x509.SubjectAlternativeName(san), critical=False)
+
+            logger.info('Signing CSR with key')
+            csr = builder.sign(key, hashes.SHA256())
+            csr_pem = csr.public_bytes(serialization.Encoding.PEM)
+
             f.write(csr_pem)
             logger.info(f"Saved CSR '{csr_file.name}'")
     except FileExistsError:
@@ -189,32 +189,35 @@ def create_certificate(name, san, key_type, validity, force):
     @param validity: certificate validity in days
     @param force: overwrite existing certificate
     """
+    logger.debug('Build and sign certificate')
     cert_file = sanitise_path(name, '.crt.pem')
-    x509_name = get_x509_name(name)
-    key = get_key(name, key_type=key_type)
-    now = datetime.datetime.now()
-    end_date = now + datetime.timedelta(days=validity)
-
-    cert = x509.CertificateBuilder()
-    cert = cert.subject_name(x509_name)
-    cert = cert.issuer_name(x509_name)
-    cert = cert.public_key(key.public_key())
-    cert = cert.serial_number(x509.random_serial_number())
-    cert = cert.not_valid_before(now)
-    cert = cert.not_valid_after(end_date)
-    cert = cert.add_extension(x509.SubjectAlternativeName(san), critical=False)
-
-    cert = cert.sign(key, hashes.SHA256())
-    cert_pem = cert.public_bytes(serialization.Encoding.PEM)
 
     write_mode = 'wb' if force else 'xb'
 
     try:
         with cert_file.open(write_mode) as f:
+            x509_name = get_x509_name(name)
+            key = get_key(name, key_type=key_type)
+            now = datetime.datetime.now()
+            end_date = now + datetime.timedelta(days=validity)
+
+            cert = x509.CertificateBuilder()
+            cert = cert.subject_name(x509_name)
+            cert = cert.issuer_name(x509_name)
+            cert = cert.public_key(key.public_key())
+            cert = cert.serial_number(x509.random_serial_number())
+            cert = cert.not_valid_before(now)
+            cert = cert.not_valid_after(end_date)
+            cert = cert.add_extension(x509.SubjectAlternativeName(san), critical=False)
+
+            cert = cert.sign(key, hashes.SHA256())
+            cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+
             f.write(cert_pem)
             logger.info(f"Saved certificate '{cert_file.name}'")
     except FileExistsError:
-        logger.error("ERREUR!")
+        logger.error(f"Certificate '{cert_file.name}' exists, not overwriting (use '-f' or '--force' to overwrite)")
+        return
 
     logger.info("Your certificate:\n")
     print(cert_pem.decode('utf-8'))
