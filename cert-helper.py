@@ -6,6 +6,7 @@ TODO: objectify!
 """
 import datetime
 import logging
+import re
 import click
 from yaml import safe_load, YAMLError
 from pathlib import Path
@@ -21,6 +22,7 @@ logging.basicConfig(format=log_format)
 logger.setLevel(logging.DEBUG)
 logger.debug('Initialising')
 
+domain_regex = "^((?!-))(xn--)?[a-z0-9][a-z0-9-_]{0,61}[a-z0-9]{0,1}\.(xn--)?([a-z0-9\-]{1,61}|[a-z0-9-]{1,30}\.[a-z]{2,})$"
 
 def load_settings():
     logger.debug('Loading settings')
@@ -90,6 +92,10 @@ def sanitise_path(name, suffix):
     return path
 
 
+def validate_dnsname(name):
+    match = re.search(domain_regex, name)
+
+
 def get_key(name, key_type='ec'):
     """
     Generate private key.
@@ -134,12 +140,11 @@ def get_x509_name(name):
         x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, nameoid['STATE_OR_PROVINCE_NAME']),
         x509.NameAttribute(NameOID.LOCALITY_NAME, nameoid['LOCALITY_NAME']),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, nameoid['ORGANIZATION_NAME']),
-        x509.NameAttribute(NameOID.EMAIL_ADDRESS, nameoid['EMAIL_ADDRESS']),
         x509.NameAttribute(NameOID.COMMON_NAME, name),
     ])
 
 
-def create_csr(name, san, key_type, force):
+def create_csr(name, san, key_type, force=False):
     """
     Create certificate signing request (CSR)
     :param name: the common name, also name of the certificate
@@ -179,7 +184,7 @@ def create_csr(name, san, key_type, force):
     return csr_pem
 
 
-def create_certificate(name, san, key_type, validity, force):
+def create_certificate(name, san, key_type, validity, force=False):
     """
     Create a *self signed* certificate
     @param name: common name
@@ -250,14 +255,13 @@ def debug():
 
 
 @cli.command()
-@click.option('--force', '-f', is_flag=True, help="Overwrite existing CSR, if present")
-def interactive(force):
+def interactive(force=False):
     """
     Create CSR interactively
     """
     logger.debug('Run CLI interactive')
-    key_type = click.prompt("What type of key to use? ('ec' or 'rsa')", default='ec')
     common_name = click.prompt('What is the primary domain?', type=str)
+    key_type = click.prompt("What type of key to use? ('ec' or 'rsa')", default='ec')
     self_signed = click.prompt('Do you want to create self-signed certificate?', type=bool, default=False)
 
     more_altnames = True
@@ -267,25 +271,34 @@ def interactive(force):
         if not this_name:
             more_altnames = False
         else:
+            # validate_dnsname(this_name)
             altnames.append(x509.DNSName(this_name))
 
-    create_csr(common_name, altnames, key_type, force)
+    if not (create_csr(common_name, altnames, key_type)):
+        overwrite = click.prompt("CSR for this domain already exists, overwrite it?", type=bool,default=False)
+        if overwrite:
+            create_csr(common_name, altnames, key_type, overwrite)
 
     if self_signed:
         validity = click.prompt('How long do you want the certificate to be valid for?', type=int, default=365)
-        create_certificate(common_name, altnames, key_type, validity, force)
+        if not (create_certificate(common_name, altnames, key_type, validity)):
+            overwrite = click.prompt("Certificate for this domain already exists, overwrite it?", type=bool,default=False)
+            if overwrite:
+                create_certificate(common_name, altnames, key_type, validity, overwrite)
 
 
-create_help_text = "Domain to create a CSR for. Should be passed multiple times, " \
-                   "the first entry will be the primary domain."
+help_text_domain = "Domain to create a CSR for. Can be passed multiple times, " \
+                   "the first entry will be the primary domain"
+help_text_type   = "Type of key to generate. 'rsa' or 'ec', defaults to 'ec'"
+help_text_sign = "Create self-signed certificate?"
 
 
 @cli.command()
-@click.option('--domain', '-d', multiple=True, required=True, help=create_help_text)
-@click.option('--type', '-t', 'key_type', default='ec', help="Type of key to generate. 'rsa' or 'ec', defaults to 'ec'")
-@click.option('--sign', '-s', is_flag=True, help="Create self-signed certificate")
-@click.option('--validity', '-v', is_flag=True, default=365, type=int)
-@click.option('--force', '-f', is_flag=True, help="Overwrite existing CSR, if present")
+@click.option('--domain', '-d', multiple=True, required=True, help=help_text_domain)
+@click.option('--type', '-t', 'key_type', default='ec', help=help_text_type)
+@click.option('--sign', '-s', is_flag=True, type=bool, help=help_text_sign)
+@click.option('--validity', '-v', is_flag=True, default=365, type=int, help="Length of certificate validity, in days")
+@click.option('--force', '-f', is_flag=True, type=bool, help="Overwrite existing CSR and certificate, if present", default=False)
 def create(domain, key_type, sign, validity, force):
     """
     Pass domains to create without going interactive

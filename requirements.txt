@@ -1,3 +1,0 @@
-click~=7.1.2
-PyYAML~=5.4.1
-cryptography~=3.4.6
