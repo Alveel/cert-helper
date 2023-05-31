@@ -8,6 +8,7 @@ click = "*"
 pyyaml = "*"
 cryptography = "*"
 pylint = "*"
+black = "*"
 
 [dev-packages]
 
