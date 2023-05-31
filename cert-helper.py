@@ -28,7 +28,13 @@ else:
 
 logger.debug('Initialising')
 
-domain_regex = "^((?!-))(xn--)?[a-z0-9][a-z0-9-_]{0,61}[a-z0-9]{0,1}\.(xn--)?([a-z0-9\-]{1,61}|[a-z0-9-]{1,30}\.[a-z]{2,})$"
+# Regex from validators library, adjusted to allow wildcard domains.
+domain_regex = re.compile(
+    r'^(\*\.)?(([a-zA-Z]{1})|([a-zA-Z]{1}[a-zA-Z]{1})|'
+    r'([a-zA-Z]{1}[0-9]{1})|([0-9]{1}[a-zA-Z]{1})|'
+    r'([a-zA-Z0-9][-_.a-zA-Z0-9]{0,61}[a-zA-Z0-9]))\.'
+    r'([a-zA-Z]{2,13}|[a-zA-Z0-9-]{2,30}.[a-zA-Z]{2,3})$'
+)
 
 def load_settings():
     logger.debug('Loading settings')
@@ -99,6 +105,11 @@ def sanitise_path(name, suffix):
 
 
 def validate_dnsname(name):
+    """
+    Return whether or not given value is a valid domain.
+
+    If the value is valid domain name this function returns ``True``.
+    """
     match = re.search(domain_regex, name)
     if not match:
         logger.error(f"Domain '{name}' is invalid!")
