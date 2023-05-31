@@ -18,27 +18,30 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 
 log_debug = os.environ.get("DEBUG")
-logger = logging.getLogger('root')
+logger = logging.getLogger("root")
 if log_debug:
     logger.setLevel(logging.DEBUG)
-    logging.basicConfig(format="[%(filename)s:%(lineno)d	- %(funcName)20s() ] %(message)s")
+    logging.basicConfig(
+        format="[%(filename)s:%(lineno)d	- %(funcName)20s() ] %(message)s"
+    )
 else:
     logger.setLevel(logging.INFO)
     logging.basicConfig(format="%(message)s")
 
-logger.debug('Initialising')
+logger.debug("Initialising")
 
 # Regex from validators library, adjusted to allow wildcard domains.
 domain_regex = re.compile(
-    r'^(\*\.)?(([a-zA-Z]{1})|([a-zA-Z]{1}[a-zA-Z]{1})|'
-    r'([a-zA-Z]{1}[0-9]{1})|([0-9]{1}[a-zA-Z]{1})|'
-    r'([a-zA-Z0-9][-_.a-zA-Z0-9]{0,61}[a-zA-Z0-9]))\.'
-    r'([a-zA-Z]{2,13}|[a-zA-Z0-9-]{2,30}.[a-zA-Z]{2,3})$'
+    r"^(\*\.)?(([a-zA-Z]{1})|([a-zA-Z]{1}[a-zA-Z]{1})|"
+    r"([a-zA-Z]{1}[0-9]{1})|([0-9]{1}[a-zA-Z]{1})|"
+    r"([a-zA-Z0-9][-_.a-zA-Z0-9]{0,61}[a-zA-Z0-9]))\."
+    r"([a-zA-Z]{2,13}|[a-zA-Z0-9-]{2,30}.[a-zA-Z]{2,3})$"
 )
 
+
 def load_settings():
-    logger.debug('Loading settings')
-    settings_file = Path('settings.yaml')
+    logger.debug("Loading settings")
+    settings_file = Path("settings.yaml")
     with settings_file.open() as stream:
         try:
             data = safe_load(stream)
@@ -56,23 +59,18 @@ def private_key_load(key_file_path: Path):
     :param key_file_path: Path to key file
     :return: RSAPrivateKey or EllipticCurvePrivateKey
     """
-    logger.debug('Loading private key file')
-    with key_file_path.open(mode='rb') as f:
-        return serialization.load_pem_private_key(
-            f.read(),
-            password=None
-        )
+    logger.debug("Loading private key file")
+    with key_file_path.open(mode="rb") as f:
+        return serialization.load_pem_private_key(f.read(), password=None)
 
 
 def create_ec_key():
-    logger.debug('Generating EC')
-    return ec.generate_private_key(
-        ec.SECP256R1()
-    )
+    logger.debug("Generating EC")
+    return ec.generate_private_key(ec.SECP256R1())
 
 
 def create_rsa_key(length=4096):
-    logger.debug('Generating RSA')
+    logger.debug("Generating RSA")
     return rsa.generate_private_key(
         public_exponent=65537,
         key_size=length,
@@ -86,20 +84,20 @@ def get_mapping(key_type):
     :return: the create_key function
     """
     mapping = {
-        'ec': create_ec_key,
-        'rsa': create_rsa_key,
+        "ec": create_ec_key,
+        "rsa": create_rsa_key,
     }
 
     return mapping[key_type]
 
 
 def sanitise_path(name, suffix):
-    logger.debug('Sanitise path (Path)')
+    logger.debug("Sanitise path (Path)")
     # First sanitise
     replace_wildcard = name.replace("*", "wildcard")
 
     # Then build path
-    path = Path(f'out/{name}/{replace_wildcard}{suffix}')
+    path = Path(f"out/{name}/{replace_wildcard}{suffix}")
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -117,7 +115,7 @@ def validate_dnsname(name):
     return match.string
 
 
-def get_key(name, key_type='ec'):
+def get_key(name, key_type="ec"):
     """
     Generate private key.
 
@@ -126,26 +124,32 @@ def get_key(name, key_type='ec'):
 
     TODO: this is no longer the case... We first create an empty key file with 0600 permissions.
     """
-    logger.debug('Get key file or generate a new key')
-    key_file = sanitise_path(name, f'.{key_type}.pem')
+    logger.debug("Get key file or generate a new key")
+    key_file = sanitise_path(name, f".{key_type}.pem")
     key_file.touch(0o600)
 
     try:
         key = private_key_load(key_file)
     except ValueError:
-        logger.error(f"Private key file '{key_file.name}' does not contain correct private key, overwriting")
+        logger.error(
+            f"Private key file '{key_file.name}' does not contain correct private key, overwriting"
+        )
 
     try:
-        with key_file.open(mode='wb') as f:
+        with key_file.open(mode="wb") as f:
             key = get_mapping(key_type)()
 
-            f.write(key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.TraditionalOpenSSL,
-                encryption_algorithm=serialization.NoEncryption()
-            ))
+            f.write(
+                key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.TraditionalOpenSSL,
+                    encryption_algorithm=serialization.NoEncryption(),
+                )
+            )
     except FileExistsError:
-        logger.error(f"Private key file '{key_file.name}' already exists, loading contents")
+        logger.error(
+            f"Private key file '{key_file.name}' already exists, loading contents"
+        )
         key = private_key_load(key_file)
 
     key_file.chmod(0o600)
@@ -154,15 +158,19 @@ def get_key(name, key_type='ec'):
 
 
 def get_x509_name(name):
-    nameoid = settings['nameoid']
+    nameoid = settings["nameoid"]
 
-    return x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, nameoid['COUNTRY_NAME']),
-        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, nameoid['STATE_OR_PROVINCE_NAME']),
-        x509.NameAttribute(NameOID.LOCALITY_NAME, nameoid['LOCALITY_NAME']),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, nameoid['ORGANIZATION_NAME']),
-        x509.NameAttribute(NameOID.COMMON_NAME, name),
-    ])
+    return x509.Name(
+        [
+            x509.NameAttribute(NameOID.COUNTRY_NAME, nameoid["COUNTRY_NAME"]),
+            x509.NameAttribute(
+                NameOID.STATE_OR_PROVINCE_NAME, nameoid["STATE_OR_PROVINCE_NAME"]
+            ),
+            x509.NameAttribute(NameOID.LOCALITY_NAME, nameoid["LOCALITY_NAME"]),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, nameoid["ORGANIZATION_NAME"]),
+            x509.NameAttribute(NameOID.COMMON_NAME, name),
+        ]
+    )
 
 
 def create_csr(name, san, key_type, force=False):
@@ -174,12 +182,12 @@ def create_csr(name, san, key_type, force=False):
     :param force: overwrite existing CSR
     :return: PEM encoded CSR
     """
-    logger.debug('Build and sign the CSR')
-    csr_file = sanitise_path(name, f'.csr.pem')
+    logger.debug("Build and sign the CSR")
+    csr_file = sanitise_path(name, f".csr.pem")
 
     logger.info("Creating certificate signing request")
 
-    write_mode = 'wb' if force else 'xb'
+    write_mode = "wb" if force else "xb"
 
     try:
         with csr_file.open(write_mode) as f:
@@ -188,9 +196,11 @@ def create_csr(name, san, key_type, force=False):
 
             builder = x509.CertificateSigningRequestBuilder()
             builder = builder.subject_name(get_x509_name(name))
-            builder = builder.add_extension(x509.SubjectAlternativeName(san), critical=False)
+            builder = builder.add_extension(
+                x509.SubjectAlternativeName(san), critical=False
+            )
 
-            logger.info('Signing CSR with key')
+            logger.info("Signing CSR with key")
             csr = builder.sign(key, hashes.SHA256())
             csr_pem = csr.public_bytes(serialization.Encoding.PEM)
 
@@ -198,11 +208,13 @@ def create_csr(name, san, key_type, force=False):
             logger.info(f"Saved CSR '{csr_file.name}'")
     except FileExistsError:
         # TODO: this message doesn't make much sense when running in interactive mode.
-        logger.error(f"CSR '{csr_file.name}' exists, not overwriting (use '-f' or '--force' to overwrite)")
+        logger.error(
+            f"CSR '{csr_file.name}' exists, not overwriting (use '-f' or '--force' to overwrite)"
+        )
         return
 
     logger.info("Your CSR:\n")
-    print(csr_pem.decode('utf-8'))
+    print(csr_pem.decode("utf-8"))
     return csr_pem
 
 
@@ -215,10 +227,10 @@ def create_certificate(name, san, key_type, validity, force=False):
     @param validity: certificate validity in days
     @param force: overwrite existing certificate
     """
-    logger.debug('Build and sign certificate')
-    cert_file = sanitise_path(name, '.crt.pem')
+    logger.debug("Build and sign certificate")
+    cert_file = sanitise_path(name, ".crt.pem")
 
-    write_mode = 'wb' if force else 'xb'
+    write_mode = "wb" if force else "xb"
 
     try:
         with cert_file.open(write_mode) as f:
@@ -243,20 +255,22 @@ def create_certificate(name, san, key_type, validity, force=False):
             logger.info(f"Saved certificate '{cert_file.name}'")
     except FileExistsError:
         # TODO: this message doesn't make much sense when running in interactive mode.
-        logger.error(f"Certificate '{cert_file.name}' exists, not overwriting (use '-f' or '--force' to overwrite)")
+        logger.error(
+            f"Certificate '{cert_file.name}' exists, not overwriting (use '-f' or '--force' to overwrite)"
+        )
         return
 
     logger.info("Your certificate:\n")
-    print(cert_pem.decode('utf-8'))
+    print(cert_pem.decode("utf-8"))
     return cert_pem
 
 
-CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
+CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 
 
 @click.group(
     context_settings=CONTEXT_SETTINGS,
-    help="Helper script for creating Certificate Signing Requests (CSR)"
+    help="Helper script for creating Certificate Signing Requests (CSR)",
 )
 def cli():
     pass
@@ -267,14 +281,14 @@ def debug():
     """
     Debug function with static domains
     """
-    logger.debug('Run CLI debug')
+    logger.debug("Run CLI debug")
     san = [
-        x509.DNSName('example.org'),
-        x509.DNSName('*.example.org'),
-        x509.DNSName('example.net')
+        x509.DNSName("example.org"),
+        x509.DNSName("*.example.org"),
+        x509.DNSName("example.net"),
     ]
-    create_csr('test', san, 'ec', True)
-    create_certificate('test', san, 'ec', 10, True)
+    create_csr("test", san, "ec", True)
+    create_certificate("test", san, "ec", 10, True)
 
 
 @cli.command()
@@ -286,44 +300,76 @@ def interactive(force=False):
     common_name = click.prompt("What is the primary domain?", type=str)
     while not (validate_dnsname(common_name)):
         common_name = click.prompt("What is the primary domain?", type=str)
-    key_type = click.prompt("What type of key to use? ('ec' or 'rsa')", default='ec')
-    self_signed = click.prompt("Do you want to create self-signed certificate?", type=bool, default=False)
+    key_type = click.prompt("What type of key to use? ('ec' or 'rsa')", default="ec")
+    self_signed = click.prompt(
+        "Do you want to create self-signed certificate?", type=bool, default=False
+    )
 
     more_altnames = True
     altnames = [x509.DNSName(common_name)]
     while more_altnames:
-        this_name = click.prompt("Please enter any additional names", type=str, default="")
+        this_name = click.prompt(
+            "Please enter any additional names", type=str, default=""
+        )
         if not this_name:
             more_altnames = False
         else:
-            if (validate_dnsname(this_name)):
-                    altnames.append(x509.DNSName(this_name))
+            if validate_dnsname(this_name):
+                altnames.append(x509.DNSName(this_name))
 
     if not (create_csr(common_name, altnames, key_type)):
-        overwrite = click.prompt("CSR for this domain already exists, overwrite it?", type=bool,default=False)
+        overwrite = click.prompt(
+            "CSR for this domain already exists, overwrite it?",
+            type=bool,
+            default=False,
+        )
         if overwrite:
             create_csr(common_name, altnames, key_type, overwrite)
 
     if self_signed:
-        validity = click.prompt("How long do you want the certificate to be valid for?", type=int, default=365)
+        validity = click.prompt(
+            "How long do you want the certificate to be valid for?",
+            type=int,
+            default=365,
+        )
         if not (create_certificate(common_name, altnames, key_type, validity)):
-            overwrite = click.prompt("Certificate for this domain already exists, overwrite it?", type=bool,default=False)
+            overwrite = click.prompt(
+                "Certificate for this domain already exists, overwrite it?",
+                type=bool,
+                default=False,
+            )
             if overwrite:
                 create_certificate(common_name, altnames, key_type, validity, overwrite)
 
 
-help_text_domain = "Domain to create a CSR for. Can be passed multiple times, " \
-                   "the first entry will be the primary domain"
-help_text_type   = "Type of key to generate. 'rsa' or 'ec', defaults to 'ec'"
+help_text_domain = (
+    "Domain to create a CSR for. Can be passed multiple times, "
+    "the first entry will be the primary domain"
+)
+help_text_type = "Type of key to generate. 'rsa' or 'ec', defaults to 'ec'"
 help_text_sign = "Create self-signed certificate?"
 
 
 @cli.command()
-@click.option('--domain', '-d', multiple=True, required=True, help=help_text_domain)
-@click.option('--type', '-t', 'key_type', default='ec', help=help_text_type)
-@click.option('--sign', '-s', is_flag=True, type=bool, help=help_text_sign)
-@click.option('--validity', '-v', is_flag=True, default=365, type=int, help="Length of certificate validity, in days")
-@click.option('--force', '-f', is_flag=True, type=bool, help="Overwrite existing CSR and certificate, if present", default=False)
+@click.option("--domain", "-d", multiple=True, required=True, help=help_text_domain)
+@click.option("--type", "-t", "key_type", default="ec", help=help_text_type)
+@click.option("--sign", "-s", is_flag=True, type=bool, help=help_text_sign)
+@click.option(
+    "--validity",
+    "-v",
+    is_flag=True,
+    default=365,
+    type=int,
+    help="Length of certificate validity, in days",
+)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    type=bool,
+    help="Overwrite existing CSR and certificate, if present",
+    default=False,
+)
 def create(domain, key_type, sign, validity, force):
     """
     Pass domains to create without going interactive
@@ -348,5 +394,5 @@ def create(domain, key_type, sign, validity, force):
         create_certificate(common_name, altnames, key_type, validity, force)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     cli()
