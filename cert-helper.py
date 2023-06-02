@@ -6,6 +6,7 @@ TODO: objectify!
 """
 import datetime
 import logging
+import os
 import re
 import click
 from yaml import safe_load, YAMLError
@@ -16,13 +17,24 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 
+log_debug = os.environ.get("DEBUG")
 logger = logging.getLogger('root')
-log_format = f"[%(filename)s:%(lineno)d	- %(funcName)20s() ] %(message)s"
-logging.basicConfig(format=log_format)
-logger.setLevel(logging.DEBUG)
+if log_debug:
+    logger.setLevel(logging.DEBUG)
+    logging.basicConfig(format="[%(filename)s:%(lineno)d	- %(funcName)20s() ] %(message)s")
+else:
+    logger.setLevel(logging.INFO)
+    logging.basicConfig(format="%(message)s")
+
 logger.debug('Initialising')
 
-domain_regex = "^((?!-))(xn--)?[a-z0-9][a-z0-9-_]{0,61}[a-z0-9]{0,1}\.(xn--)?([a-z0-9\-]{1,61}|[a-z0-9-]{1,30}\.[a-z]{2,})$"
+# Regex from validators library, adjusted to allow wildcard domains.
+domain_regex = re.compile(
+    r'^(\*\.)?(([a-zA-Z]{1})|([a-zA-Z]{1}[a-zA-Z]{1})|'
+    r'([a-zA-Z]{1}[0-9]{1})|([0-9]{1}[a-zA-Z]{1})|'
+    r'([a-zA-Z0-9][-_.a-zA-Z0-9]{0,61}[a-zA-Z0-9]))\.'
+    r'([a-zA-Z]{2,13}|[a-zA-Z0-9-]{2,30}.[a-zA-Z]{2,3})$'
+)
 
 def load_settings():
     logger.debug('Loading settings')
@@ -93,7 +105,16 @@ def sanitise_path(name, suffix):
 
 
 def validate_dnsname(name):
+    """
+    Return whether or not given value is a valid domain.
+
+    If the value is valid domain name this function returns ``True``.
+    """
     match = re.search(domain_regex, name)
+    if not match:
+        logger.error(f"Domain '{name}' is invalid!")
+        return
+    return match.string
 
 
 def get_key(name, key_type='ec'):
@@ -176,6 +197,7 @@ def create_csr(name, san, key_type, force=False):
             f.write(csr_pem)
             logger.info(f"Saved CSR '{csr_file.name}'")
     except FileExistsError:
+        # TODO: this message doesn't make much sense when running in interactive mode.
         logger.error(f"CSR '{csr_file.name}' exists, not overwriting (use '-f' or '--force' to overwrite)")
         return
 
@@ -220,6 +242,7 @@ def create_certificate(name, san, key_type, validity, force=False):
             f.write(cert_pem)
             logger.info(f"Saved certificate '{cert_file.name}'")
     except FileExistsError:
+        # TODO: this message doesn't make much sense when running in interactive mode.
         logger.error(f"Certificate '{cert_file.name}' exists, not overwriting (use '-f' or '--force' to overwrite)")
         return
 
@@ -259,20 +282,22 @@ def interactive(force=False):
     """
     Create CSR interactively
     """
-    logger.debug('Run CLI interactive')
-    common_name = click.prompt('What is the primary domain?', type=str)
+    logger.debug("Run CLI interactive")
+    common_name = click.prompt("What is the primary domain?", type=str)
+    while not (validate_dnsname(common_name)):
+        common_name = click.prompt("What is the primary domain?", type=str)
     key_type = click.prompt("What type of key to use? ('ec' or 'rsa')", default='ec')
-    self_signed = click.prompt('Do you want to create self-signed certificate?', type=bool, default=False)
+    self_signed = click.prompt("Do you want to create self-signed certificate?", type=bool, default=False)
 
     more_altnames = True
     altnames = [x509.DNSName(common_name)]
     while more_altnames:
-        this_name = click.prompt('Please enter any additional names', type=str, default="")
+        this_name = click.prompt("Please enter any additional names", type=str, default="")
         if not this_name:
             more_altnames = False
         else:
-            # validate_dnsname(this_name)
-            altnames.append(x509.DNSName(this_name))
+            if (validate_dnsname(this_name)):
+                    altnames.append(x509.DNSName(this_name))
 
     if not (create_csr(common_name, altnames, key_type)):
         overwrite = click.prompt("CSR for this domain already exists, overwrite it?", type=bool,default=False)
@@ -280,7 +305,7 @@ def interactive(force=False):
             create_csr(common_name, altnames, key_type, overwrite)
 
     if self_signed:
-        validity = click.prompt('How long do you want the certificate to be valid for?', type=int, default=365)
+        validity = click.prompt("How long do you want the certificate to be valid for?", type=int, default=365)
         if not (create_certificate(common_name, altnames, key_type, validity)):
             overwrite = click.prompt("Certificate for this domain already exists, overwrite it?", type=bool,default=False)
             if overwrite:
@@ -303,11 +328,19 @@ def create(domain, key_type, sign, validity, force):
     """
     Pass domains to create without going interactive
     """
-    logger.debug('Run CLI create')
+    logger.debug("Run CLI create")
     common_name = domain[0].strip("'")
     altnames = []
+    error = False
+
     for d in domain:
-        altnames.append(x509.DNSName(d))
+        if re.search(domain_regex, d):
+            altnames.append(x509.DNSName(d))
+        else:
+            logger.error(f"Domain '{d}' is invalid!")
+            error = True
+    if error:
+        exit(1)
 
     create_csr(common_name, altnames, key_type, force)
 
