@@ -8,7 +8,7 @@ click = "*"
 pyyaml = "*"
 cryptography = "*"
 pylint = "*"
-black = "*"
+black = {extras = ["d"], version = "*"}
 
 [dev-packages]
 
