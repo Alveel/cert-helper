@@ -130,14 +130,19 @@ def get_key(name, key_type="ec"):
     logger.debug("Get key file or generate a new key")
     key_file = sanitise_path(name, f".{key_type}.pem")
     key_file.touch(0o600)
+    key_file_stat = key_file.stat()
 
-    try:
-        key = private_key_load(key_file)
-    except ValueError:
-        logger.error(
-            "Private key file '%s' does not contain correct private key, overwriting",
-            key_file.name,
-        )
+    if key_file_stat.st_size > 0:
+        logger.debug("Trying to load existing key file")
+        try:
+          return private_key_load(key_file)
+        except ValueError:
+            logger.error(
+                "Private key file '%s' does not contain valid private key! Delete or run with"
+                "'--force' or '-f' to overwrite.",
+                key_file.name,
+            )
+            sys.exit(2)
 
     try:
         with key_file.open(mode="wb") as file:
@@ -215,7 +220,7 @@ def create_csr(name, san, key_type, force=False):
             logger.info("Saved CSR '%s'", csr_file.name)
     except FileExistsError:
         logger.error(
-            "CSR '%s' exists, not overwriting. Re-run with '--force' or '-f' to overwrite.",
+            "Re-using existing CSR '%s'. (Delete or run with '--force' or '-f' to overwrite.)",
             csr_file.name,
         )
         return
@@ -262,8 +267,9 @@ def create_certificate(name, san, key_type, validity, force=False):
             logger.info("Saved certificate '%s'", cert_file.name)
     except FileExistsError:
         logger.error(
-            "Certificate '%s' exists, not overwriting. Re-run with '--force' or '-f' to overwrite.",
-            cert_file.name
+            "Re-using existing certificate '%s'. (Delete or run with '--force' or '-f' to "
+            "overwrite.)",
+            cert_file.name,
         )
         return
 
