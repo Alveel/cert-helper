@@ -168,6 +168,7 @@ def get_x509_name(name):
             ),
             x509.NameAttribute(NameOID.LOCALITY_NAME, nameoid["LOCALITY_NAME"]),
             x509.NameAttribute(NameOID.ORGANIZATION_NAME, nameoid["ORGANIZATION_NAME"]),
+            x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, nameoid["ORGANIZATIONAL_UNIT"]),
             x509.NameAttribute(NameOID.COMMON_NAME, name),
         ]
     )
