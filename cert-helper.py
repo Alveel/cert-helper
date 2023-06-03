@@ -8,13 +8,13 @@ import datetime
 import logging
 import os
 import re
-import click
-from yaml import safe_load, YAMLError
 from pathlib import Path
+import click
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from yaml import safe_load, YAMLError
 
 
 log_debug = os.environ.get("DEBUG")
@@ -40,9 +40,13 @@ domain_regex = re.compile(
 
 
 def load_settings():
+    """
+    Load settings.yaml
+    @return: dict with nameoid configuration
+    """
     logger.debug("Loading settings")
     settings_file = Path("settings.yaml")
-    with settings_file.open() as stream:
+    with settings_file.open(encoding='utf-8') as stream:
         try:
             data = safe_load(stream)
             return data
@@ -119,10 +123,8 @@ def get_key(name, key_type="ec"):
     """
     Generate private key.
 
-    Because we do not want to overwrite any existing private keys, try to open the file first in exclusive write mode.
-    If the key file already exists, FileExistsError is thrown, and we try to load the existing file instead.
-
-    TODO: this is no longer the case... We first create an empty key file with 0600 permissions.
+    Touch the key file with "0600" permissions, try to load an existing key from it,
+    otherwise generate a new key.
     """
     logger.debug("Get key file or generate a new key")
     key_file = sanitise_path(name, f".{key_type}.pem")
@@ -208,9 +210,9 @@ def create_csr(name, san, key_type, force=False):
             f.write(csr_pem)
             logger.info(f"Saved CSR '{csr_file.name}'")
     except FileExistsError:
-        # TODO: this message doesn't make much sense when running in interactive mode.
         logger.error(
-            f"CSR '{csr_file.name}' exists, not overwriting (use '-f' or '--force' to overwrite)"
+            f"CSR '{csr_file.name}' exists, not overwriting."
+            f"Re-run with '--force' or '-f' to overwrite."
         )
         return
 
@@ -221,7 +223,7 @@ def create_csr(name, san, key_type, force=False):
 
 def create_certificate(name, san, key_type, validity, force=False):
     """
-    Create a *self signed* certificate
+    Create a *self-signed* certificate
     @param name: common name
     @param key_type: key type of certificate
     @param san: subjectAltNames
@@ -255,9 +257,9 @@ def create_certificate(name, san, key_type, validity, force=False):
             f.write(cert_pem)
             logger.info(f"Saved certificate '{cert_file.name}'")
     except FileExistsError:
-        # TODO: this message doesn't make much sense when running in interactive mode.
         logger.error(
-            f"Certificate '{cert_file.name}' exists, not overwriting (use '-f' or '--force' to overwrite)"
+            f"Certificate '{cert_file.name}' exists, not overwriting. "
+            f"Re-run with '--force' or '-f' to overwrite."
         )
         return
 
@@ -299,7 +301,7 @@ def interactive(force=False):
     """
     logger.debug("Run CLI interactive")
     common_name = click.prompt("What is the primary domain?", type=str)
-    while not (validate_dnsname(common_name)):
+    while not validate_dnsname(common_name):
         common_name = click.prompt("What is the primary domain?", type=str)
     key_type = click.prompt("What type of key to use? ('ec' or 'rsa')", default="ec")
     self_signed = click.prompt(
@@ -318,7 +320,7 @@ def interactive(force=False):
             if validate_dnsname(this_name):
                 altnames.append(x509.DNSName(this_name))
 
-    if not (create_csr(common_name, altnames, key_type)):
+    if not create_csr(common_name, altnames, key_type):
         overwrite = click.prompt(
             "CSR for this domain already exists, overwrite it?",
             type=bool,
@@ -333,7 +335,7 @@ def interactive(force=False):
             type=int,
             default=365,
         )
-        if not (create_certificate(common_name, altnames, key_type, validity)):
+        if not create_certificate(common_name, altnames, key_type, validity):
             overwrite = click.prompt(
                 "Certificate for this domain already exists, overwrite it?",
                 type=bool,
