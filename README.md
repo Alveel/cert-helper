@@ -8,7 +8,8 @@ This script uses the [cryptography], [click], and [PyYAML] libraries.
 
 ## Install and use
 
-1. Install in a virtualenv with `pip install -r requirements.txt`.
+1. Install `pipenv` with `pip install pipenv`
+1. Run `pipenv install`
 1. Copy [settings.sample.yaml](settings.sample.yaml) to `settings.yaml` and modify to your needs.
 1. Then run `python cert-helper.py` to get started!
 
