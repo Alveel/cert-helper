@@ -19,7 +19,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip --disable-pip-version-check install pipenv
-        pipenv install
+        pipenv install --dev
 
     - name: Analysing the formatting with black
       run: |
