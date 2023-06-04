@@ -9,6 +9,9 @@ pyyaml = "*"
 cryptography = "*"
 pylint = "*"
 black = {extras = ["d"], version = "*"}
+pre-commit = "*"
+flake8 = "*"
+flake8-bugbear = "*"
 
 [dev-packages]
 
