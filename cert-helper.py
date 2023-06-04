@@ -56,6 +56,7 @@ def load_settings():
 
 
 settings = load_settings()
+force_hint = "Delete or run with '--force' or '-f' to overwrite."
 
 
 def private_key_load(key_file_path: Path):
@@ -135,12 +136,12 @@ def get_key(name, key_type="ec"):
     if key_file_stat.st_size > 0:
         logger.debug("Trying to load existing key file")
         try:
-          return private_key_load(key_file)
+            return private_key_load(key_file)
         except ValueError:
             logger.error(
-                "Private key file '%s' does not contain valid private key! Delete or run with"
-                "'--force' or '-f' to overwrite.",
+                "Private key file '%s' does not contain valid private key! (%s)",
                 key_file.name,
+                force_hint,
             )
             sys.exit(2)
 
@@ -220,14 +221,14 @@ def create_csr(name, san, key_type, force=False):
             logger.info("Saved CSR '%s'", csr_file.name)
     except FileExistsError:
         logger.error(
-            "Re-using existing CSR '%s'. (Delete or run with '--force' or '-f' to overwrite.)",
+            "Re-using existing CSR '%s'. (%s)",
             csr_file.name,
+            force_hint,
         )
         return
 
     logger.info("Your CSR:\n")
     print(csr_pem.decode("utf-8"))
-    return csr_pem
 
 
 def create_certificate(name, san, key_type, validity, force=False):
@@ -265,17 +266,15 @@ def create_certificate(name, san, key_type, validity, force=False):
 
             file.write(cert_pem)
             logger.info("Saved certificate '%s'", cert_file.name)
+
+            logger.info("Your certificate:\n")
+            print(cert_pem.decode("utf-8"))
     except FileExistsError:
         logger.error(
-            "Re-using existing certificate '%s'. (Delete or run with '--force' or '-f' to "
-            "overwrite.)",
+            "Re-using existing certificate '%s'. (%s)",
             cert_file.name,
+            force_hint,
         )
-        return
-
-    logger.info("Your certificate:\n")
-    print(cert_pem.decode("utf-8"))
-    return cert_pem
 
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
