@@ -53,17 +53,18 @@ def load_settings():
             return data
         except YAMLError as yaml_err:
             logger.error(yaml_err)
+            sys.exit(3)
 
 
 settings = load_settings()
-force_hint = "Delete or run with '--force' or '-f' to overwrite."
+FORCE_HINT = "Delete or run with '--force' or '-f' to overwrite."
 
 
 def private_key_load(key_file_path: Path):
     """
     Load private key, independent of type.
-    :param key_file_path: Path to key file
-    :return: RSAPrivateKey or EllipticCurvePrivateKey
+    @param key_file_path: Path to key file
+    @return: RSAPrivateKey or EllipticCurvePrivateKey
     """
     logger.debug("Loading private key file")
     with key_file_path.open(mode="rb") as file:
@@ -71,11 +72,20 @@ def private_key_load(key_file_path: Path):
 
 
 def create_ec_key():
+    """
+    Generate an elliptic curve private key and return it.
+    @return: EllipticCurvePrivateKey
+    """
     logger.debug("Generating EC")
     return ec.generate_private_key(ec.SECP256R1())
 
 
 def create_rsa_key(length=4096):
+    """
+    Generate an RSA private key of specified length and return it.
+    @param length: the length of the private key. Should be no shorter than 2048.
+    @return: RSAPrivateKey
+    """
     logger.debug("Generating RSA")
     return rsa.generate_private_key(
         public_exponent=65537,
@@ -86,8 +96,8 @@ def create_rsa_key(length=4096):
 def get_mapping(key_type):
     """
     Translate key_type to the appropriate create_key function
-    :param key_type: the type of key
-    :return: the create_key function
+    @param key_type: the type of key
+    @return: the create_key function
     """
     mapping = {
         "ec": create_ec_key,
@@ -98,6 +108,10 @@ def get_mapping(key_type):
 
 
 def sanitise_path(name, suffix):
+    """
+    If our primary domain name is a wildcard, we should replace '*'
+    with literal "wildcard".
+    """
     logger.debug("Sanitise path (Path)")
     # First sanitise
     replace_wildcard = name.replace("*", "wildcard")
@@ -117,8 +131,8 @@ def validate_dnsname(name):
     match = re.search(domain_regex, name)
     if not match:
         logger.error("Domain '%s' is invalid!", name)
-        return
-    return match.string
+        return False
+    return True
 
 
 def get_key(name, key_type="ec"):
@@ -141,7 +155,7 @@ def get_key(name, key_type="ec"):
             logger.error(
                 "Private key file '%s' does not contain valid private key! (%s)",
                 key_file.name,
-                force_hint,
+                FORCE_HINT,
             )
             sys.exit(2)
 
@@ -168,6 +182,9 @@ def get_key(name, key_type="ec"):
 
 
 def get_x509_name(name):
+    """
+    Create the x509 certificate
+    """
     nameoid = settings["nameoid"]
 
     return x509.Name(
@@ -223,7 +240,7 @@ def create_csr(name, san, key_type, force=False):
         logger.error(
             "Re-using existing CSR '%s'. (%s)",
             csr_file.name,
-            force_hint,
+            FORCE_HINT,
         )
         return
 
@@ -273,7 +290,7 @@ def create_certificate(name, san, key_type, validity, force=False):
         logger.error(
             "Re-using existing certificate '%s'. (%s)",
             cert_file.name,
-            force_hint,
+            FORCE_HINT,
         )
 
 
@@ -285,6 +302,7 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     help="Helper script for creating Certificate Signing Requests (CSR)",
 )
 def cli():
+    # pylint: disable=missing-function-docstring
     pass
 
 
