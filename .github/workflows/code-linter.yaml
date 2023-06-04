@@ -1,6 +1,6 @@
 name: Code linter
 
-on: [push]
+on: [push, pull_request]
 
 jobs:
   lint:
@@ -23,12 +23,12 @@ jobs:
 
     - name: Analysing the formatting with black
       run: |
-          black $(git ls-files '*.py') --check --diff --color
+          pipenv run black $(git ls-files '*.py') --check --diff --color
 
     - name: Analysing the code with pylint
       run: |
-        pylint $(git ls-files '*.py') --output-format=colorized
+        pipenv run pylint $(git ls-files '*.py') --output-format=colorized
 
     - name: Analysing the code with flake8
       run: |
-        flake8 $(git ls-files '*.py')
+        pipenv run flake8 $(git ls-files '*.py')
