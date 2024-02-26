@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10"]
+        python-version: ["3.8"]
     steps:
     - uses: actions/checkout@v3
 
@@ -18,17 +18,18 @@ jobs:
 
     - name: Install dependencies
       run: |
-        python -m pip --disable-pip-version-check install pipenv
-        pipenv install --dev
+        python -m pip --disable-pip-version-check install pdm
+        pdm install --dev
 
     - name: Analysing the formatting with black
       run: |
-          pipenv run black $(git ls-files '*.py') --check --diff --color
+          pdm run black $(git ls-files '*.py') --check --diff --color
 
     - name: Analysing the code with pylint
       run: |
-        pipenv run pylint $(git ls-files '*.py') --output-format=colorized
+        pdm run pylint $(git ls-files '*.py') --output-format=colorized
 
     - name: Analysing the code with flake8
       run: |
-        pipenv run flake8 $(git ls-files '*.py')
+        pdm run flake8 $(git ls-files '*.py')
+
