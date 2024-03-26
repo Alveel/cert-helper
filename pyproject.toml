@@ -1,6 +1,6 @@
 [project]
 name = "cert-helper"
-version = "0.1.0"
+version = "0.1.1"
 description = "A CLI utility to easily create SSL keys, CSR's and (self-signed) certificates."
 authors = [
     {name = "Alwyn Kik", email = "alwyn@kik.pw"},
@@ -12,10 +12,23 @@ dependencies = [
 ]
 requires-python = ">=3.8"
 readme = "README.md"
-license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: MIT License",
+]
+
+[project.urls]
+Homepage = "https://github.com/Alveel/cert-helper"
+Issues = "https://github.com/Alveel/cert-helper/issues"
 
 [project.scripts]
-cert-helper = "cert_helper.cli:main"
+cert-helper = "cert_helper:cli"
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
 [tool.pdm.dev-dependencies]
 dev = [
     "black[d]>=23.10.1",

@@ -1,17 +1,19 @@
 # Cert Helper
 
-A script to quickly make a private key and certificate signing request (CSR).
+A script to quickly make certificate signing requests (CSR).
 
-Supported key types are RSA and EC (elliptic curve).
+Supported key types are RSA and EC (elliptic curve), defaulting to EC.
+
+Optionally you can also immediately create a self-signed certificate.
 
 This script uses the [cryptography], [click], and [PyYAML] libraries.
 
 ## Install and use
 
-1. Install `pdm` with `pip install pdm`
-1. Run `pdm install`
-1. Copy [settings.sample.yaml](settings.sample.yaml) to `settings.yaml` and modify to your needs.
-1. Then run `python cert-helper.py` to get started!
+1. Install with `pip install cert-helper`
+1. Run `cert-helper` once to generate the default `settings.yaml`
+1. Modify `settings.yaml` to your needs.
+1. Then run `cert-helper` to get started!
 
 [cryptography]: https://cryptography.io/
 [click]: https://click.palletsprojects.com/

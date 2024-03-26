@@ -1,9 +1,11 @@
 .idea
+.pdm-build/
 .pdm-python
 .python-version
 __pycache_
+build/
+dist/
 out/
-src/
 venv/
 Lib/
 Scripts/

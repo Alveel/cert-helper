@@ -12,11 +12,14 @@ import sys
 from pathlib import Path
 import click
 from cryptography import x509
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
-from yaml import safe_load, YAMLError
+from yaml import safe_load, YAMLError, safe_dump
 
+FORCE_HINT = "Delete or run with '--force' or '-f' to overwrite."
 
 log_debug = os.environ.get("DEBUG")
 logger = logging.getLogger("root")
@@ -30,6 +33,7 @@ else:
     logging.basicConfig(format="%(message)s")
 
 logger.debug("Initialising")
+settings = {}
 
 # Regex from validators library, adjusted to allow wildcard domains.
 domain_regex = re.compile(
@@ -46,18 +50,23 @@ def load_settings():
     @return: dict with nameoid configuration
     """
     logger.debug("Loading settings")
-    settings_file = Path("settings.yaml")
-    with settings_file.open(encoding="utf-8") as stream:
-        try:
-            data = safe_load(stream)
-            return data
-        except YAMLError as yaml_err:
-            logger.error(yaml_err)
-            sys.exit(3)
-
-
-settings = load_settings()
-FORCE_HINT = "Delete or run with '--force' or '-f' to overwrite."
+    settings_file_str = os.environ.get("CERT_HELPER_SETTINGS", "settings.yaml")
+    settings_file = Path(settings_file_str)
+    try:
+        with settings_file.open(encoding="utf-8") as stream:
+            try:
+                data = safe_load(stream)
+                return data
+            except YAMLError as yaml_err:
+                logger.error(yaml_err)
+                sys.exit(3)
+    except FileNotFoundError:
+        create_missing = click.prompt(f"Settings file {settings_file.absolute()} not found. Do you want to create it?", default=False)
+        if create_missing:
+            create_settings_file(settings_file=settings_file)
+        else:
+            logger.error("File does not exist and not creating, exiting.")
+            sys.exit(0)
 
 
 def private_key_load(key_file_path: Path):
@@ -68,12 +77,10 @@ def private_key_load(key_file_path: Path):
     """
     logger.debug("Loading private key file")
     with key_file_path.open(mode="rb") as file:
-        private_key = serialization.load_pem_private_key(file.read(), password=None)
-        logger.info("Loaded private key from %s", key_file_path.name)
-        return private_key
+        return serialization.load_pem_private_key(file.read(), password=None)
 
 
-def create_ec_key():
+def create_ec_key() -> EllipticCurvePrivateKey:
     """
     Generate an elliptic curve private key and return it.
     @return: EllipticCurvePrivateKey
@@ -82,7 +89,7 @@ def create_ec_key():
     return ec.generate_private_key(ec.SECP256R1())
 
 
-def create_rsa_key(length=4096):
+def create_rsa_key(length=4096) -> RSAPrivateKey:
     """
     Generate an RSA private key of specified length and return it.
     @param length: the length of the private key. Should be no shorter than 2048.
@@ -95,7 +102,7 @@ def create_rsa_key(length=4096):
     )
 
 
-def get_mapping(key_type):
+def get_mapping(key_type: str) -> EllipticCurvePrivateKey | RSAPrivateKey:
     """
     Translate key_type to the appropriate create_key function
     @param key_type: the type of key
@@ -106,25 +113,25 @@ def get_mapping(key_type):
         "rsa": create_rsa_key,
     }
 
-    return mapping[key_type]
+    return mapping[key_type]()
 
 
-def sanitise_path(name, suffix):
+def sanitise_path(name: str, suffix: str) -> Path:
     """
     If our primary domain name is a wildcard, we should replace '*'
     with literal "wildcard".
     """
-    logger.debug("Sanitising path %s", name)
+    logger.debug("Sanitise path (Path)")
     # First sanitise
     replace_wildcard = name.replace("*", "wildcard")
 
     # Then build path
-    path = Path(f"out/{replace_wildcard}/{replace_wildcard}{suffix}")
+    path = Path(f"out/{name}/{replace_wildcard}{suffix}")
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def validate_dnsname(name):
+def validate_dnsname(name: str) -> bool:
     """
     Return whether or not given value is a valid domain.
 
@@ -137,7 +144,7 @@ def validate_dnsname(name):
     return True
 
 
-def get_key(name, key_type="ec"):
+def get_key(name: str, key_type="ec"):
     """
     Generate private key.
 
@@ -157,13 +164,13 @@ def get_key(name, key_type="ec"):
             logger.error(
                 "Private key file '%s' does not contain valid private key! (%s)",
                 key_file.name,
-                FORCE_HINT,
+                "Manually remove the file to generate a new key",
             )
             sys.exit(2)
 
     try:
         with key_file.open(mode="wb") as file:
-            key = get_mapping(key_type)()
+            key = get_mapping(key_type)
 
             file.write(
                 key.private_bytes(
@@ -172,8 +179,6 @@ def get_key(name, key_type="ec"):
                     encryption_algorithm=serialization.NoEncryption(),
                 )
             )
-
-        logger.info("Saved new private key '%s'.", key_file.name)
     except FileExistsError:
         logger.error(
             "Private key file '%s' already exists, loading contents", key_file.name
@@ -185,10 +190,11 @@ def get_key(name, key_type="ec"):
     return key
 
 
-def get_x509_name(name):
+def get_x509_name(name) -> x509.Name:
     """
     Create the x509 certificate
     """
+    global settings
     nameoid = settings["nameoid"]
 
     return x509.Name(
@@ -298,16 +304,33 @@ def create_certificate(name, san, key_type, validity, force=False):
         )
 
 
-CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
-
-
 @click.group(
-    context_settings=CONTEXT_SETTINGS,
+    context_settings={"help_option_names": ["-h", "--help"]},
     help="Helper script for creating Certificate Signing Requests (CSR)",
 )
 def cli():
     # pylint: disable=missing-function-docstring
     pass
+
+
+@cli.command()
+@click.option("--settings-file", "-f", type=str, default="settings.yaml")
+def create_settings_file(settings_file: str | Path):
+    """
+    Create settings file
+    """
+    logger.debug("Run CLI create_settings_file")
+    new_settings = {
+        "nameoid": {
+            "COUNTRY_NAME": "NL",
+            "STATE_OR_PROVINCE_NAME": "Noord-Holland",
+            "LOCALITY_NAME": "Amsterdam",
+            "ORGANIZATION_NAME": "Foo Bar Ltd.",
+            "ORGANIZATIONAL_UNIT": "Department of Redundancy Department",
+        }
+    }
+    with settings_file.open("w") as file:
+        safe_dump(new_settings, file)
 
 
 @cli.command()
@@ -396,24 +419,11 @@ HELP_TEXT_SIGN = "Create self-signed certificate?"
     help="Length of certificate validity, in days",
 )
 @click.option(
-    "--force-key",
+    "--force",
+    "-f",
     is_flag=True,
     type=bool,
-    help="Overwrite existing private key (if present)",
-    default=False,
-)
-@click.option(
-    "--force-csr",
-    is_flag=True,
-    type=bool,
-    help="Overwrite existing certificate signing request (if present)",
-    default=False,
-)
-@click.option(
-    "--force-crt",
-    is_flag=True,
-    type=bool,
-    help="Overwrite existing certificate (if present)",
+    help="Overwrite existing CSR and certificate, if present",
     default=False,
 )
 def create(domain, key_type, sign, validity, force):
@@ -424,6 +434,9 @@ def create(domain, key_type, sign, validity, force):
     common_name = domain[0].strip("'")
     altnames = []
     error = False
+
+    global settings
+    settings = load_settings()
 
     for name in domain:
         if re.search(domain_regex, name):
