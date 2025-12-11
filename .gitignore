@@ -2,7 +2,7 @@
 .pdm-build/
 .pdm-python
 .python-version
-__pycache_
+__pycache__/
 build/
 dist/
 out/
