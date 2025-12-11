@@ -23,11 +23,11 @@ Homepage = "https://github.com/Alveel/cert-helper"
 Issues = "https://github.com/Alveel/cert-helper/issues"
 
 [project.scripts]
-cert-helper = "cert_helper:cli"
+cert-helper = "cert_helper.cert_helper:cli"
 
 [build-system]
-requires = ["pdm-backend"]
-build-backend = "pdm.backend"
+requires = ["uv_build"]
+build-backend = "uv_build"
 
 [tool.pdm.dev-dependencies]
 dev = [
